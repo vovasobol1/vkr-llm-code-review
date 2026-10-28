@@ -1,0 +1,35 @@
+@startuml state-finding
+!pragma layout smetana
+title UML, диаграмма состояний: жизненный цикл замечания (finding.status)
+skinparam defaultFontName Arial
+hide empty description
+state "найдено" as Found
+state "дубль" as Dup
+state "на проверке" as Check
+state "подтверждено" as Ok
+state "отклонено" as Rej
+state "не проверено" as Unk
+state "снято" as Drop
+state "опубликовано" as Pub
+state "ошибка публикации" as PubErr
+state "закрыто" as Closed
+
+[*] --> Found : ответ искателя [есть файл, строка, номер правила]
+Found --> Dup : дедупликация [совпадает с замечанием\nили тредом ревьюера]
+Found --> Check : дедупликация [не дубль]
+Check --> Ok : вердикт [доказательство подтверждено\nи правило применимо]
+Check --> Rej : вердикт [иначе] / записать причину
+Check --> Unk : ошибка модели, лимит времени,\nневалидный ответ / прогон «ошибка»
+Found --> Drop : прогон «ошибка»
+Check --> Drop : прогон «ошибка»
+Ok --> Drop : прогон «ошибка»
+Ok --> Pub : публикация [тред создан] / связать тред с вердиктом
+Ok --> PubErr : публикация [ошибка API\nпосле трех повторов]
+Pub --> Closed : тред разрешен в MR
+Dup --> [*]
+Rej --> [*]
+Unk --> [*]
+Drop --> [*]
+PubErr --> [*]
+Closed --> [*]
+@enduml

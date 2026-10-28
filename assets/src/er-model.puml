@@ -1,0 +1,151 @@
+@startuml er-model
+!pragma layout smetana
+title ER-модель журнала прогонов (нотация «вороньи лапки»)
+skinparam defaultFontName Arial
+skinparam linetype ortho
+hide circle
+hide methods
+
+entity "project\nпроект" as project {
+  * project_id : int <<PK>>
+  --
+  * gitlab_project_id : int
+  * name : text
+}
+entity "rule_set\nверсия соглашений" as rule_set {
+  * rule_set_id : int <<PK>>
+  --
+  * project_id : int <<FK>>
+  * commit_sha : text
+  * loaded_at : timestamp
+}
+entity "rule\nправило" as rule {
+  * rule_id : int <<PK>>
+  --
+  * rule_set_id : int <<FK>>
+  * code : text «COD-012»
+  * topic : text
+  * text : text
+  scope_glob : text
+  examples : text
+}
+entity "merge_request\nMR" as mr {
+  * mr_id : int <<PK>>
+  --
+  * project_id : int <<FK>>
+  * gitlab_iid : int
+  * target_branch : text
+  * source_branch : text
+}
+entity "model_config\nконфигурация модели" as model_config {
+  * model_config_id : int <<PK>>
+  --
+  * model_name : text
+  * weights_version : text
+  * prompts_version : text
+  * temperature : numeric
+}
+entity "review_run\nпрогон" as run {
+  * run_id : int <<PK>>
+  --
+  * mr_id : int <<FK>>
+  * rule_set_id : int <<FK>>
+  * model_config_id : int <<FK>>
+  eval_run_id : int <<FK>>
+  * variant : text
+  trigger_key : text <<UQ>>
+  * head_sha : text
+  * base_sha : text
+  * start_sha : text
+  * status : text
+  * started_at : timestamp
+  finished_at : timestamp
+}
+entity "finding\nзамечание" as finding {
+  * finding_id : int <<PK>>
+  --
+  * run_id : int <<FK>>
+  * rule_id : int <<FK>>
+  duplicate_of : int <<FK>>
+  * agent_topic : text
+  * file_path : text
+  * line : int
+  * text : text
+  * evidence : text
+  * status : text <<CHECK>>
+}
+entity "verdict\nвердикт" as verdict {
+  * verdict_id : int <<PK>>
+  --
+  * finding_id : int <<FK, UQ>>
+  * decision : text
+  * reason : text
+  * duration_ms : int
+}
+entity "published_thread\nопубликованный тред" as thread {
+  * thread_id : int <<PK>>
+  --
+  * verdict_id : int <<FK, UQ>>
+  * gitlab_discussion_id : text
+  * published_at : timestamp
+  resolved_at : timestamp
+}
+entity "gold_comment\nзамечание эталона" as gold {
+  * gold_id : int <<PK>>
+  --
+  * mr_id : int <<FK>>
+  * rule_id : int <<FK>>
+  * file_path : text
+  * line : int
+  * text : text
+  * split : text «train / test»
+}
+entity "annotation\nразметка" as annotation {
+  * annotation_id : int <<PK>>
+  --
+  * finding_id : int <<FK>>
+  matched_gold_id : int <<FK>>
+  * annotator : text
+  * is_false : bool
+  * is_redundant : bool
+}
+entity "eval_run\nзамер" as eval_run {
+  * eval_run_id : int <<PK>>
+  --
+  * dataset : text
+  * variant : text
+  false_rate : numeric
+  recall : numeric
+  kappa : numeric
+}
+
+project ||--o{ rule_set
+project ||--o{ mr
+rule_set ||--|{ rule
+mr ||--o{ run
+rule_set ||--o{ run
+model_config ||--o{ run
+eval_run |o--o{ run
+run ||--o{ finding
+rule ||--o{ finding
+finding ||--o| verdict
+verdict ||--o| thread
+finding |o--o{ finding : duplicate_of
+finding ||--o{ annotation
+mr ||--o{ gold
+rule ||--o{ gold
+gold |o--o{ annotation
+note bottom of run
+  trigger_key – Idempotency-Key доставки вебхука,
+  UQ: повторная доставка не создаст второй прогон;
+  у офлайн-прогонов оценки пуст, их можно повторять
+end note
+note right of finding
+  CHECK: status – одно из значений
+  диаграммы состояний (рисунок 3)
+end note
+note bottom of thread
+  тред создается только для
+  вердикта «подтверждено»
+end note
+@enduml
