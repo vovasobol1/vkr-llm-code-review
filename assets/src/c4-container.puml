@@ -1,0 +1,64 @@
+@startuml c4-container
+!pragma layout smetana
+!include <C4/C4_Container>
+title C4, уровень контейнеров: система ревью в контуре компании
+LAYOUT_TOP_DOWN()
+skinparam nodesep 40
+skinparam ranksep 60
+skinparam defaultFontName Arial
+
+Person(author, "Автор MR", "Разработчик, получает замечания в треды MR")
+Person(reviewer, "Ревьюер", "Проверяет требования задачи, одобряет MR")
+Person(owner, "Сопровождающий соглашений", "Ведет пронумерованные правила команды")
+Person(annot, "Разметчик", "Размечает замечания системы и эталон")
+
+Enterprise_Boundary(contour, "Контур компании (код под NDA, без выхода во внешнюю сеть)") {
+  System_Ext(gitlab, "Self-hosted GitLab", "MR, дифф, треды, вебхуки")
+  System_Ext(llm, "Сервер модели", "vLLM или Ollama, модель с открытыми весами")
+  System_Ext(pragent, "PR-Agent", "Базовая линия для замера, та же модель")
+
+  System_Boundary(sys, "Система ревью") {
+    Container(hook, "Прием событий", "Python, HTTP", "Принимает вебхук MR, проверяет секрет, создает прогон и ставит задание в очередь")
+    ContainerQueue(queue, "Очередь заданий", "Redis", "Задания на прогон")
+    Container(orch, "Оркестратор прогона", "Python", "Собирает дифф и применимые правила, запускает агентов, убирает дубли")
+    Container(finders, "Агенты-искатели", "Python, LLM", "Темы: архитектура, код и именование, тесты, комментарии")
+    Container(verifier, "Проверяющий агент", "Python, LLM", "Сверяет каждое замечание с кодом и текстом правила, выносит вердикт")
+    Container(pub, "Публикатор", "Python, GitLab API", "Публикует подтвержденные замечания тредами на строке")
+    Container(eval, "Модуль оценки", "Python, офлайн", "Запускает варианты на эталоне и открытом наборе, считает долю ложных, полноту, каппу Коэна")
+    ContainerDb(repo, "Рабочая копия репозитория", "Git, только чтение", "Код ветки MR и файлы соглашений")
+    ContainerDb(db, "Журнал прогонов", "PostgreSQL", "Прогоны, замечания, вердикты, треды, эталон, разметка")
+  }
+}
+
+Rel_D(author, gitlab, "Открывает MR, исправляет код")
+Rel_D(reviewer, gitlab, "Проверяет MR")
+Rel_D(owner, gitlab, "Правит соглашения через MR")
+Rel_D(gitlab, hook, "Вебхук MR", "HTTPS")
+Rel_D(hook, queue, "Задание на прогон", "Redis")
+Rel_D(orch, queue, "Берет задание", "Redis")
+Rel_D(hook, db, "Создает прогон", "SQL")
+Rel_U(orch, gitlab, "Дифф и треды", "REST API, токен только на чтение (read_api)")
+Rel_D(orch, repo, "Обновляет до коммита MR", "git fetch, учетная запись только на чтение")
+Rel_D(orch, finders, "Дифф и правила темы", "HTTP, JSON")
+Rel_D(orch, verifier, "Каждое замечание", "HTTP, JSON")
+Rel_D(finders, llm, "Запросы", "HTTP, OpenAI-совместимый API")
+Rel_D(verifier, llm, "Запросы", "HTTP, OpenAI-совместимый API")
+Rel_D(verifier, repo, "Читает файлы, ищет вызовы", "файловая система, только чтение")
+Rel_D(orch, pub, "Подтвержденные замечания", "HTTP, JSON")
+Rel_U(pub, gitlab, "Создает треды", "REST API, токен бота, роль Reporter")
+Rel_D(orch, db, "Пишет версии, замечания, вердикты", "SQL")
+Rel_D(pub, db, "Связывает тред с вердиктом", "SQL")
+Rel_D(eval, db, "Читает прогоны и эталон, пишет разметку и метрики", "SQL")
+Rel_U(eval, queue, "Ставит офлайн-прогоны вариантов", "Redis")
+Rel_D(eval, pragent, "Запускает базовую линию", "CLI")
+Rel_D(pragent, llm, "Запросы", "HTTP")
+Rel_D(annot, eval, "Размечает замечания и эталон", "CLI, выгрузка CSV")
+Lay_R(author, reviewer)
+Lay_R(reviewer, owner)
+Lay_R(owner, annot)
+Lay_R(finders, verifier)
+Lay_R(verifier, pub)
+Lay_R(db, repo)
+Lay_R(repo, llm)
+Lay_R(pub, eval)
+@enduml
